@@ -1,0 +1,164 @@
+#!/usr/bin/with-contenv bash
+
+DB_PORT=${DB_PORT:-5432}
+MEMCACHED_PORT=${MEMCACHED_PORT:-11211}
+REDIS_PORT=${REDIS_PORT:-6379}
+
+### Sanity Test
+    if [ ! -n "DB_HOST" ]; then
+        echo '** [sentry] ERROR: No Database Host Entered! '
+        exit 1
+    fi
+
+    if [ ! -n "DB_NAME" ]; then
+        echo '** [sentry] ERROR: No Database Pass Entered! '
+        exit 1
+    fi
+
+    if [ ! -n "DB_USER" ]; then
+        echo '** [sentry] ERROR: No Database User Entered! '
+        exit 1
+    fi
+
+    if [ ! -n "DB_PASS" ]; then
+        echo '** [sentry] ERROR: No Database Pass Entered! '
+        exit 1
+    fi
+
+    if [ ! -n "REDIS_HOST" ]; then
+        echo '** [sentry] ERROR: No Redis Host Entered! '
+        exit 1
+    fi
+
+    mkdir -p $SENTRY_CONF 
+    mkdir -p $SENTRY_FILESTORE_DIR
+    mkdir -p /var/log/sentry
+    chown -R sentry /var/log/sentry
+
+    if [ ! -f "/etc/sentry/config.yml" ]; then
+       echo '** [sentry] No config.yml found, copying default'
+       cp -R /assets/etc/sentry/config.yml /etc/sentry
+    fi
+
+    if [ ! -f "/etc/sentry/sentry.conf.py" ]; then
+       echo '** [sentry] No sentry.conf.py found, copying default'
+         if [ "$LDAP_ENABLE" = "TRUE" ];  then 
+            echo '** [sentry] Enabling LDAP Support'
+
+            ## Set Defaults
+            LDAP_UID_ATTR=${LDAP_UID_ATTR:-"uid"}
+            LDAP_NAME_ATTR=${LDAP_NAME_ATTR:-"cn"}
+            LDAP_MAIL_ATTR=${LDAP_MAIL_ATTR:-"mail"}
+            LDAP_USER_SCOPE=${LDAP_USER_SCOPE:-"(mail=%(user)s)"}
+            LDAP_GROUP_SCOPE=${LDAP_GROUP_SCOPE:-"(objectClass=groupOfUniqueNames)"}
+            LDAP_ORGANIZATION_NAME=${LDAP_ORGANIZATION_NAME:-"sentry"}
+            LDAP_AUTO_ADD_ROLE_TYPE=${LDAP_AUTO_ADD_ROLE_TYPE:-"member"}
+            LDAP_AUTO_ADD_GLOBAL=${LDAP_AUTO_ADD_GLOBAL:-"False"}
+            LDAP_FIND_GROUP_PERMS=${AUTH_LDAP_FIND_GROUP_PERMS:-"True"}
+            LDAP_CACHE_GROUPS=${LDAP_CACHE_GROUPS:-"True"}
+            LDAP_GROUP_CACHE_TIMEOUT=${LDAP_GROUP_CACHE_TIMEOUT:-3600}
+
+            if [ ! -n "LDAP_BASE_DN" ]; then
+                echo '** [sentry] ERROR: No LDAP_BASE_DN entered!'
+                exit 1
+            fi
+
+            if [ ! -n "LDAP_URI" ]; then
+                echo '** [sentry] ERROR: No LDAP_BASE_DN entered!'
+                exit 1
+            fi
+
+            if [ ! -n "LDAP_DOMAIN" ]; then
+                echo '** [sentry] ERROR: No LDAP_DOMAIN entered!'
+                exit 1
+            fi
+            
+            cat <<EOF >> /assets/etc/sentry/sentry.conf.py
+### LDAP
+import ldap
+from django_auth_ldap.config import LDAPSearch, GroupOfUniqueNamesType
+
+AUTH_LDAP_SERVER_URI = '$LDAP_URI'
+AUTH_LDAP_BIND_DN = '$LDAP_BIND_DN'
+AUTH_LDAP_BIND_PASSWORD = '$LDAP_BIND_PASS'
+
+AUTH_LDAP_USER_SEARCH = LDAPSearch(
+    '$LDAP_BASE_DN',
+    ldap.SCOPE_SUBTREE,
+    '$LDAP_USER_SCOPE'
+)
+
+AUTH_LDAP_GROUP_SEARCH = LDAPSearch(
+    '$LDAP_BASE_DN',
+    ldap.SCOPE_SUBTREE,
+    '$LDAP_GROUP_SCOPE'
+)
+
+AUTH_LDAP_USER_ATTR_MAP = {
+ 'name': '$LDAP_NAME_ATTR',
+ 'email': '$LDAP_MAIL_ATTR'
+}
+
+AUTH_LDAP_FIND_GROUP_PERMS = $LDAP_FIND_GROUP_PERMS
+AUTH_LDAP_CACHE_GROUPS = $LDAP_CACHE_GROUPS
+AUTH_LDAP_GROUP_CACHE_TIMEOUT = $LDAP_GROUP_CACHE_TIMEOUT
+ 
+AUTH_LDAP_DEFAULT_SENTRY_ORGANIZATION = u'$LDAP_ORGANIZATION_NAME'
+AUTH_LDAP_SENTRY_ORGANIZATION_ROLE_TYPE = '$LDAP_AUTO_ADD_ROLE_TYPE'
+AUTH_LDAP_SENTRY_ORGANIZATION_GLOBAL_ACCESS = $LDAP_AUTO_ADD_GLOBAL
+AUTH_LDAP_SENTRY_USERNAME_FIELD = '$LDAP_UID_ATTR'
+AUTH_LDAP_DEFAULT_EMAIL_DOMAIN = '$LDAP_DOMAIN'
+
+AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + (
+ 'sentry_ldap_auth.backend.SentryLdapBackend',
+)
+
+import logging
+logger = logging.getLogger('django_auth_ldap')
+logger.addHandler(logging.StreamHandler())
+logger.setLevel('DEBUG')
+EOF
+
+        if [ "$SSO_ENABLE" = "TRUE" ];  then 
+              sed -i -e "s/SENTRY_FEATURES\['organizations:sso'\] = False/SENTRY_FEATURES\['organizations:sso'\] = True/g" /assets/etc/sentry/sentry.conf.py
+              SSO_SAML_ENABLE=${SSO_SAML_ENABLE:-"TRUE"}
+              if [ "$SSO_SAML_ENABLE" = "TRUE" ];  then 
+                  sed -i -e "s/SENTRY_FEATURES\['organizations:sso-saml2'\] = False/SENTRY_FEATURES\['organizations:sso-saml2'\] = True/g" /assets/etc/sentry/sentry.conf.py
+              fi
+              SSO_RIPPLE_ENABLE=${SSO_RIPPLE_ENABLE:-"TRUE"}
+              if [ "$SSO_RIPPLE_ENABLE" = "TRUE" ];  then 
+                  sed -i -e "s/SENTRY_FEATURES\['organizations:sso-rippling'\] = False/SENTRY_FEATURES['organizations:sso-rippling'\] = True/g" /assets/etc/sentry/sentry.conf.py
+              fi
+           cp -R /assets/etc/sentry/sentry.conf.py /etc/sentry
+        fi
+
+      fi
+    fi
+
+### Check Database is Up
+    until (echo > /dev/tcp/${DB_HOST}/${DB_PORT}) &> /dev/null; do
+        echo "** [sentry] Waiting for postgresql server '$DB_HOST' to be ready"
+        sleep 5
+    done
+
+    if [ ! -f "${SENTRY_FILESTORE_DIR}/.db_init" ]; then
+        echo "** [sentry] No Data in Database, Installing.. Please Wait"
+        yes n | sentry upgrade
+        echo "** [sentry] Adding Admin User"
+        sentry createuser --email $ADMIN_EMAIL --password $ADMIN_PASS --superuser --no-input
+        echo $SENTRY_VERSION > $SENTRY_FILESTORE_DIR/.db_init
+    else 
+        SENTRY_INSTALLED_VERSION=`cat $SENTRY_FILESTORE_DIR/.db_init`
+        if [ "$SENTRY_VERSION" != "$SENTRY_INSTALLED_VERSION" ]; then 
+          echo "** [sentry] Upgrading from Version "$SENTRY_INSTALLED_VERSION" to "$SENTRY_VERSION;
+          sentry upgrade
+          echo $SENTRY_VERSION > $SENTRY_FILESTORE_DIR/.db_init
+        fi
+    fi
+
+
+    chown -R sentry $SENTRY_CONF $SENTRY_FILESTORE_DIR
+
+    mkdir -p /tmp/state
+    echo 'Initialization Complete' >/tmp/state/10-init-sentry
+

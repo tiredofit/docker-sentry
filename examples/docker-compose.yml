@@ -1,0 +1,70 @@
+version: '2'
+
+services:
+  sentry-app:
+    image: tiredofit/sentry
+    container_name: sentry-app
+    environment:
+    - VIRTUAL_HOST=sentry.example.com
+    - VIRTUAL_NETWORK=nginx-proxy
+    - VIRTUAL_PORT=9000
+    - LETSENCRYPT_HOST=sentry.example.com
+    - LETSENCRYPT_EMAIL=admin@example.com
+
+    - ZABBIX_HOSTNAME=sentry-app
+
+    - ADMIN_EMAIL=admin@example.com
+    - ADMIN_PASS=sentry
+    - SECRET_KEY="32characterpassword1234567890"
+    - DB_HOST=sentry-db
+    - DB_NAME=sentry
+    - DB_USER=sentry
+    - DB_PASS=password
+    - REDIS_HOST=sentry-db-redis
+
+    - SMTP_HOST=postfix-relay
+    - SMTP_PORT=25
+    - SMTP_MAIL_FROM=noreply@example.com
+
+    - LDAP_ENABLE=FALSE
+    - LDAP_URI=ldap://192.168.1.1
+    - LDAP_BASE_DN=dc=example,dc=com
+    - LDAP_BIND_DN=cn=admin,dc=example,dc=com
+    - LDAP_BIND_PASS=password
+    - LDAP_ORGANIZATION_NAME=sentry
+    - LDAP_DOMAIN=example
+
+    - SSO_ENABLE=TRUE
+    - SSO_SAML_ENABLE=TRUE
+
+    volumes:
+    - ./data:/var/lib/sentry/files
+    networks:
+    - proxy-tier
+    restart: always
+
+  sentry-db-redis:
+    container_name: sentry-db-redis
+    image: tiredofit/redis
+    restart: always
+    networks:
+      - proxy-tier
+
+  sentry-db:
+    image: tiredofit/postgres:9.6-latest
+    container_name: sentry-db
+    environment:
+      - POSTGRES_USER=sentry
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=sentry
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - proxy-tier
+
+networks:
+  proxy-tier:
+    external:
+      name: nginx-proxy
+

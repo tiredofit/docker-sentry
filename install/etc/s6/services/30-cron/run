@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bash
+
+while [ ! -f /tmp/state/20-interface ]
+do
+  sleep 1
+done
+
+if [ ! -f /tmp/state/30-cron ]; then
+	echo 'Initialization Complete' >/tmp/state/30-cron
+fi
+
+
+echo ''
+echo '** [sentry] Starting Sentry'
+exec s6-setuidgid sentry sentry run cron;

@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bash
+
+while [ ! -f /tmp/state/99-container-init ]
+do
+  sleep 1
+done
+
+if [ ! -f /tmp/state/10-worker ]; then
+	echo 'Initialization Complete' >/tmp/state/10-worker
+fi
+
+
+echo ''
+echo '** [sentry] Starting Sentry Worker'
+exec s6-setuidgid sentry sentry run worker;

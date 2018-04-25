@@ -1,0 +1,1 @@
+0 3 * * * sentry cleanup --days=30
